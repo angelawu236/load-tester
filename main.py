@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-LoadBlast Week 1: single-process async HTTP load generator.
-Usage: python main.py --url URL --concurrency N --duration S [--ramp-up S]
+LoadBlast worker: async HTTP load generator.
+Usage: python main.py --url URL --concurrency N --duration S [--ramp-up S] --test-id ID
 """
 import argparse
 import asyncio
 import json
+import os
 import time
 from collections import Counter
 
 import aiohttp
+import redis.asyncio as aioredis
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,6 +21,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--duration", type=int, required=True, help="Test duration in seconds")
     p.add_argument("--ramp-up", type=int, default=0, dest="ramp_up",
                    help="Seconds to ramp up to full concurrency (default: 0)")
+    p.add_argument("--test-id", required=True, dest="test_id",
+                   help="Unique test ID; metrics published to Redis channel metrics:<test-id>")
     return p.parse_args()
 
 
@@ -47,14 +51,14 @@ def build_metrics_line(snapshot: list, active_vus: int) -> str:
     })
 
 
-def print_final_summary(state: dict) -> None:
+async def publish_final_summary(state: dict) -> None:
     all_results = state["all_results"]
     if not all_results:
         return
     latencies = sorted(s[0] for s in all_results)
     errors = sum(1 for s in all_results if s[2])
     code_counter = Counter(str(s[1]) for s in all_results if s[1] != 0)
-    print(json.dumps({
+    await state["redis"].publish(state["channel"], json.dumps({
         "summary": True,
         "total_requests": len(all_results),
         "total_errors": errors,
@@ -62,7 +66,7 @@ def print_final_summary(state: dict) -> None:
         "p95": round(percentile(latencies, 95)),
         "p99": round(percentile(latencies, 99)),
         "status_codes": dict(code_counter),
-    }), flush=True)
+    }))
 
 
 async def make_request(state: dict, session: aiohttp.ClientSession) -> None:
@@ -99,7 +103,7 @@ async def reporter_loop(state: dict) -> None:
         await asyncio.sleep(1)
         snapshot = state["current_window"]
         state["current_window"] = []
-        print(build_metrics_line(snapshot, state["active_vus"]), flush=True)
+        await state["redis"].publish(state["channel"], build_metrics_line(snapshot, state["active_vus"]))
 
 
 async def orchestrate(args: argparse.Namespace, state: dict,
@@ -127,6 +131,8 @@ def main() -> None:
     args = parse_args()
     state: dict = {
         "url": args.url,
+        "channel": f"metrics:{args.test_id}",
+        "redis": None,
         "current_window": [],
         "all_results": [],
         "active_vus": 0,
@@ -134,6 +140,8 @@ def main() -> None:
     }
 
     async def run() -> None:
+        redis = aioredis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379)
+        state["redis"] = redis
         connector = aiohttp.TCPConnector(limit=args.concurrency + 10, ttl_dns_cache=300)
         timeout = aiohttp.ClientTimeout(connect=5, sock_read=10)
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
@@ -145,7 +153,8 @@ def main() -> None:
             finally:
                 reporter.cancel()
                 await asyncio.gather(reporter, return_exceptions=True)
-                print_final_summary(state)
+                await publish_final_summary(state)
+                await redis.aclose()
 
     try:
         asyncio.run(run())
