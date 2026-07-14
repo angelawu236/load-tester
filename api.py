@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import redis.asyncio as aioredis
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from kubernetes import client as k8s, config as k8s_config
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 WORKER_IMAGE = "loadblast-worker:latest"
 REDIS_HOST_IN_CLUSTER = "redis-master"   # K8s service name, used by worker pods
@@ -18,11 +18,36 @@ tests: dict[str, dict] = {}
 batch_v1: k8s.BatchV1Api | None = None
 
 
-class TestConfig(BaseModel):
+class FlowStep(BaseModel):
+    name: str = ""
+    method: str = "GET"
     url: str
+    headers: dict[str, str] = {}
+    body: dict | str | None = None
+    extract: list[dict] = []
+
+
+class TestConfig(BaseModel):
+    url: str | None = None
+    flow: list[FlowStep] | None = None
     concurrency: int
     duration: int
     ramp_up: int = 0
+
+    model_config = {"json_schema_extra": {"examples": [
+        {"url": "http://example.com", "concurrency": 20, "duration": 10},
+        {"flow": [{"method": "POST", "url": "http://ex.com/login", "body": {"user": "a"},
+                   "extract": [{"name": "token", "from": "json", "path": "token"}]},
+                  {"method": "GET", "url": "http://ex.com/me",
+                   "headers": {"Authorization": "Bearer {{token}}"}}],
+         "concurrency": 10, "duration": 30}
+    ]}}
+
+    @model_validator(mode="after")
+    def url_or_flow_required(self) -> "TestConfig":
+        if not self.url and not self.flow:
+            raise ValueError("provide either url (Mode 1) or flow (Mode 2)")
+        return self
 
 
 @asynccontextmanager
@@ -39,6 +64,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+def _worker_args(test_id: str, config: TestConfig) -> list[str]:
+    if config.flow:
+        flow_json = json.dumps({"steps": [s.model_dump() for s in config.flow]})
+        mode_args = ["--flow", flow_json]
+    else:
+        mode_args = ["--url", config.url]
+    return [
+        *mode_args,
+        "--concurrency", str(config.concurrency),
+        "--duration", str(config.duration),
+        "--ramp-up", str(config.ramp_up),
+        "--test-id", test_id,
+    ]
+
+
 def _create_job(test_id: str, config: TestConfig) -> None:
     batch_v1.create_namespaced_job(
         namespace="default",
@@ -53,13 +93,7 @@ def _create_job(test_id: str, config: TestConfig) -> None:
                             name="worker",
                             image=WORKER_IMAGE,
                             image_pull_policy="Never",
-                            args=[
-                                "--url", config.url,
-                                "--concurrency", str(config.concurrency),
-                                "--duration", str(config.duration),
-                                "--ramp-up", str(config.ramp_up),
-                                "--test-id", test_id,
-                            ],
+                            args=_worker_args(test_id, config),
                             env=[k8s.V1EnvVar(name="REDIS_HOST", value=REDIS_HOST_IN_CLUSTER)],
                         )],
                     )
