@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LoadBlast — Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="/" class="wordmark">Load<span>Blast</span></a>
+    <div class="header-sep"></div>
+    <div class="header-sub" id="hdr-id">—</div>
+    <div style="margin-left:auto;">
+      <span class="pill pill-running" id="status-pill">
+        <span class="dot dot-pulse"></span>Running
+      </span>
+    </div>
+  </div>
+</header>
+
+<main style="padding: 24px 0 64px;">
+  <div class="page">
+
+    <!-- ── KPI row ──────────────────────────────────────────────── -->
+    <div class="g6 mb-16">
+      <div class="kpi">
+        <div class="kpi-label">RPS</div>
+        <div class="kpi-val" id="kpi-rps">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">p50</div>
+        <div class="kpi-val" id="kpi-p50">—<span class="kpi-unit">ms</span></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">p95</div>
+        <div class="kpi-val" id="kpi-p95">—<span class="kpi-unit">ms</span></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">p99</div>
+        <div class="kpi-val" id="kpi-p99">—<span class="kpi-unit">ms</span></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Errors</div>
+        <div class="kpi-val" id="kpi-err">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Active VUs</div>
+        <div class="kpi-val" id="kpi-vus">—</div>
+      </div>
+    </div>
+
+    <!-- ── Charts ───────────────────────────────────────────────── -->
+    <div class="g2 chart-grid mb-16">
+      <div class="chart-card">
+        <div class="chart-title">Requests / second</div>
+        <div class="chart-wrap"><canvas id="chart-rps"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Latency</div>
+        <div class="chart-wrap"><canvas id="chart-lat"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ── Status codes ─────────────────────────────────────────── -->
+    <div class="chart-card mb-16" style="padding: 16px 18px;">
+      <div class="chart-title" style="margin-bottom: 0;">Status codes</div>
+      <div class="codes" id="codes-list"><span style="color:var(--ink-muted); font-size:13px;">Waiting for data…</span></div>
+    </div>
+
+    <!-- ── Summary (hidden until done) ─────────────────────────── -->
+    <div id="summary" style="display:none;">
+      <div class="summary-card">
+        <div class="summary-label">Test complete</div>
+        <div class="summary-grid">
+          <div>
+            <div class="s-val" id="sum-total">—</div>
+            <div class="s-key">Total requests</div>
+          </div>
+          <div>
+            <div class="s-val" id="sum-errors">—</div>
+            <div class="s-key">Errors</div>
+          </div>
+          <div>
+            <div class="s-val" id="sum-p50">—<span style="font-size:13px; color:var(--ink-muted)"> ms</span></div>
+            <div class="s-key">p50 latency</div>
+          </div>
+          <div>
+            <div class="s-val" id="sum-p95">—<span style="font-size:13px; color:var(--ink-muted)"> ms</span></div>
+            <div class="s-key">p95 latency</div>
+          </div>
+          <div>
+            <div class="s-val" id="sum-p99">—<span style="font-size:13px; color:var(--ink-muted)"> ms</span></div>
+            <div class="s-key">p99 latency</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="ws-error" class="msg-error" style="display:none;"></div>
+
+  </div>
+</main>
+
+<script>
+  // ── Setup ────────────────────────────────────────────────────────────────
+  const params = new URLSearchParams(location.search);
+  const testId = params.get('id');
+  if (!testId) { document.getElementById('ws-error').textContent = 'No test ID in URL.'; document.getElementById('ws-error').style.display = ''; }
+
+  document.getElementById('hdr-id').textContent = testId ? testId.slice(0, 8) : '—';
+
+  function css(v) {
+    return getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  }
+
+  // ── Chart helpers ────────────────────────────────────────────────────────
+  const MAX_POINTS = 120;
+
+  function baseScales() {
+    return {
+      x: {
+        grid:   { color: css('--grid'), drawBorder: false },
+        ticks:  { color: css('--ink-muted'), maxTicksLimit: 8, font: { size: 11 } },
+        border: { color: css('--axis') },
+      },
+      y: {
+        grid:        { color: css('--grid'), drawBorder: false },
+        ticks:       { color: css('--ink-muted'), font: { size: 11 } },
+        border:      { color: css('--axis') },
+        beginAtZero: true,
+      },
+    };
+  }
+
+  function baseTooltip() {
+    return {
+      mode: 'index',
+      intersect: false,
+      backgroundColor: css('--surface'),
+      borderColor:     css('--grid'),
+      borderWidth:     1,
+      titleColor:      css('--ink-muted'),
+      bodyColor:       css('--ink'),
+      padding:         10,
+      titleFont:       { size: 11 },
+      bodyFont:        { size: 12 },
+    };
+  }
+
+  function lineDataset(label, color, data = []) {
+    return {
+      label,
+      data,
+      borderColor:            color,
+      borderWidth:            2,
+      pointRadius:            0,
+      pointHoverRadius:       4,
+      pointHoverBorderWidth:  2,
+      pointHoverBorderColor:  css('--surface'),
+      pointHoverBackgroundColor: color,
+      tension:                0.3,
+      fill:                   false,
+    };
+  }
+
+  // ── RPS chart ────────────────────────────────────────────────────────────
+  const rpsChart = new Chart(document.getElementById('chart-rps'), {
+    type: 'line',
+    data: {
+      labels:   [],
+      datasets: [lineDataset('RPS', css('--s1'))],
+    },
+    options: {
+      responsive:          true,
+      maintainAspectRatio: false,
+      animation:           false,
+      plugins: {
+        legend:  { display: false },
+        tooltip: baseTooltip(),
+      },
+      scales: {
+        ...baseScales(),
+        y: { ...baseScales().y, title: { display: false } },
+      },
+    },
+  });
+
+  // ── Latency chart ────────────────────────────────────────────────────────
+  const latChart = new Chart(document.getElementById('chart-lat'), {
+    type: 'line',
+    data: {
+      labels:   [],
+      datasets: [
+        lineDataset('p50', css('--s1')),
+        lineDataset('p95', css('--s2')),
+        lineDataset('p99', css('--s3')),
+      ],
+    },
+    options: {
+      responsive:          true,
+      maintainAspectRatio: false,
+      animation:           false,
+      plugins: {
+        legend: {
+          display:  true,
+          position: 'top',
+          align:    'end',
+          labels: {
+            color:           css('--ink-muted'),
+            usePointStyle:   true,
+            pointStyleWidth: 10,
+            boxHeight:       2,
+            font:            { size: 11 },
+            padding:         12,
+          },
+        },
+        tooltip: { ...baseTooltip(), callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} ms`,
+        }},
+      },
+      scales: {
+        ...baseScales(),
+        y: { ...baseScales().y, title: { display: false } },
+      },
+    },
+  });
+
+  function pushPoint(chart, label, ...values) {
+    chart.data.labels.push(label);
+    values.forEach((v, i) => chart.data.datasets[i].data.push(v));
+    if (chart.data.labels.length > MAX_POINTS) {
+      chart.data.labels.shift();
+      chart.data.datasets.forEach(ds => ds.data.shift());
+    }
+    chart.update('none');
+  }
+
+  // ── KPI updates ──────────────────────────────────────────────────────────
+  function setKpi(id, val, unit = '') {
+    const el = document.getElementById(id);
+    el.innerHTML = val + (unit ? `<span class="kpi-unit">${unit}</span>` : '');
+  }
+
+  // ── Status codes ─────────────────────────────────────────────────────────
+  const allCodes = {};
+
+  function updateCodes(snapshot) {
+    Object.entries(snapshot).forEach(([code, n]) => {
+      allCodes[code] = (allCodes[code] || 0) + n;
+    });
+    const el = document.getElementById('codes-list');
+    el.innerHTML = '';
+    Object.entries(allCodes).sort().forEach(([code, n]) => {
+      const span = document.createElement('span');
+      span.className = 'code-badge ' + (code.startsWith('2') ? 'code-2xx' : 'code-err');
+      span.textContent = `${code}  ×${n.toLocaleString()}`;
+      el.appendChild(span);
+    });
+  }
+
+  // ── Summary ──────────────────────────────────────────────────────────────
+  function showSummary(d) {
+    document.getElementById('sum-total').textContent  = d.total_requests.toLocaleString();
+    document.getElementById('sum-errors').textContent = d.total_errors.toLocaleString();
+    document.getElementById('sum-p50').innerHTML = `${d.p50}<span style="font-size:13px;color:var(--ink-muted)"> ms</span>`;
+    document.getElementById('sum-p95').innerHTML = `${d.p95}<span style="font-size:13px;color:var(--ink-muted)"> ms</span>`;
+    document.getElementById('sum-p99').innerHTML = `${d.p99}<span style="font-size:13px;color:var(--ink-muted)"> ms</span>`;
+    document.getElementById('summary').style.display = '';
+
+    const pill = document.getElementById('status-pill');
+    pill.className = 'pill pill-done';
+    pill.innerHTML = '<span class="dot"></span>Complete';
+  }
+
+  // ── WebSocket ────────────────────────────────────────────────────────────
+  if (testId) {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/tests/${testId}/metrics`);
+
+    ws.onmessage = ({ data }) => {
+      let d;
+      try { d = JSON.parse(data); } catch { return; }
+
+      if (d.summary) {
+        showSummary(d);
+        return;
+      }
+
+      // Tick label: HH:MM:SS
+      const tick = new Date(d.ts * 1000).toLocaleTimeString([], { hour12: false });
+
+      setKpi('kpi-rps', d.rps);
+      setKpi('kpi-p50', d.p50, 'ms');
+      setKpi('kpi-p95', d.p95, 'ms');
+      setKpi('kpi-p99', d.p99, 'ms');
+      setKpi('kpi-err', d.errors);
+      setKpi('kpi-vus', d.concurrency);
+
+      pushPoint(rpsChart, tick, d.rps);
+      pushPoint(latChart,  tick, d.p50, d.p95, d.p99);
+
+      if (d.status_codes) updateCodes(d.status_codes);
+    };
+
+    ws.onerror = () => {
+      document.getElementById('ws-error').textContent = 'WebSocket error — check that the server is running.';
+      document.getElementById('ws-error').style.display = '';
+    };
+
+    ws.onclose = ({ code }) => {
+      if (code === 4000) {
+        const el = document.getElementById('ws-error');
+        el.textContent = 'Test already finished before connecting.';
+        el.style.display = '';
+        const pill = document.getElementById('status-pill');
+        pill.className = 'pill pill-error';
+        pill.innerHTML = 'Missed';
+      }
+      if (code === 4004) {
+        const el = document.getElementById('ws-error');
+        el.textContent = 'Unknown test ID.';
+        el.style.display = '';
+      }
+    };
+  }
+</script>
+</body>
+</html>

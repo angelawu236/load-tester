@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 import asyncio
 import json
+import os
+import sys
 import uuid
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from kubernetes import client as k8s, config as k8s_config
 from pydantic import BaseModel, model_validator
+
+# Set DEV_MODE=1 to skip Kubernetes and run the worker as a local subprocess.
+DEV_MODE: bool = bool(os.getenv("DEV_MODE"))
 
 WORKER_IMAGE = "loadblast-worker:latest"
 REDIS_HOST_IN_CLUSTER = "redis-master"   # K8s service name, used by worker pods
@@ -53,15 +60,28 @@ class TestConfig(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global batch_v1
-    k8s_config.load_kube_config()
-    batch_v1 = k8s.BatchV1Api()
+    if not DEV_MODE:
+        k8s_config.load_kube_config()
+        batch_v1 = k8s.BatchV1Api()
     yield
-    for test_id, test in tests.items():
-        if not test["done"]:
-            _delete_job(test_id)
+    if not DEV_MODE:
+        for test_id, test in tests.items():
+            if not test["done"]:
+                _delete_job(test_id)
 
 
 app = FastAPI(lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+
+@app.get("/")
+async def index():
+    return FileResponse("frontend/index.html")
+
+
+@app.get("/dashboard")
+async def dashboard():
+    return FileResponse("frontend/dashboard.html")
 
 
 def _worker_args(test_id: str, config: TestConfig) -> list[str]:
@@ -138,12 +158,38 @@ async def _pipe_from_redis(test_id: str) -> None:
     _delete_job(test_id)
 
 
+async def _run_local_worker(test_id: str, config: TestConfig) -> None:
+    """Dev mode: run main.py as a subprocess, pipe stdout directly to WS queues."""
+    args = [sys.executable, "main.py"] + _worker_args(test_id, config) + ["--stdout"]
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    test = tests[test_id]
+    async for raw in proc.stdout:
+        line = raw.decode().strip()
+        if not line:
+            continue
+        for q in list(test["queues"]):
+            await q.put(line)
+        if json.loads(line).get("summary"):
+            break
+    await proc.wait()
+    test["done"] = True
+    for q in list(test["queues"]):
+        await q.put(None)
+
+
 @app.post("/tests")
 async def start_test(config: TestConfig):
     test_id = str(uuid.uuid4())
-    _create_job(test_id, config)
     tests[test_id] = {"queues": [], "done": False}
-    asyncio.create_task(_pipe_from_redis(test_id))
+    if DEV_MODE:
+        asyncio.create_task(_run_local_worker(test_id, config))
+    else:
+        _create_job(test_id, config)
+        asyncio.create_task(_pipe_from_redis(test_id))
     return {"test_id": test_id}
 
 

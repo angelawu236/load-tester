@@ -27,6 +27,8 @@ def parse_args() -> argparse.Namespace:
                    help="Seconds to ramp up to full concurrency (default: 0)")
     p.add_argument("--test-id", required=True, dest="test_id",
                    help="Unique test ID; metrics published to Redis channel metrics:<test-id>")
+    p.add_argument("--stdout", action="store_true",
+                   help="Write metrics to stdout instead of Redis (dev mode)")
     return p.parse_args()
 
 
@@ -55,6 +57,13 @@ def build_metrics_line(snapshot: list, active_vus: int) -> str:
     })
 
 
+async def _emit(state: dict, line: str) -> None:
+    if state["stdout_mode"]:
+        print(line, flush=True)
+    else:
+        await state["redis"].publish(state["channel"], line)
+
+
 async def publish_final_summary(state: dict) -> None:
     all_results = state["all_results"]
     if not all_results:
@@ -62,7 +71,7 @@ async def publish_final_summary(state: dict) -> None:
     latencies = sorted(s[0] for s in all_results)
     errors = sum(1 for s in all_results if s[2])
     code_counter = Counter(str(s[1]) for s in all_results if s[1] != 0)
-    await state["redis"].publish(state["channel"], json.dumps({
+    await _emit(state, json.dumps({
         "summary": True,
         "total_requests": len(all_results),
         "total_errors": errors,
@@ -207,7 +216,7 @@ async def reporter_loop(state: dict) -> None:
         await asyncio.sleep(1)
         snapshot = state["current_window"]
         state["current_window"] = []
-        await state["redis"].publish(state["channel"], build_metrics_line(snapshot, state["active_vus"]))
+        await _emit(state, build_metrics_line(snapshot, state["active_vus"]))
 
 
 async def orchestrate(args: argparse.Namespace, state: dict,
@@ -243,6 +252,7 @@ def main() -> None:
         "flow": flow_steps,
         "channel": f"metrics:{args.test_id}",
         "redis": None,
+        "stdout_mode": args.stdout,
         "current_window": [],
         "all_results": [],
         "active_vus": 0,
@@ -250,8 +260,10 @@ def main() -> None:
     }
 
     async def run() -> None:
-        redis = aioredis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379)
-        state["redis"] = redis
+        redis = None
+        if not args.stdout:
+            redis = aioredis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379)
+            state["redis"] = redis
         connector = aiohttp.TCPConnector(limit=args.concurrency + 10, ttl_dns_cache=300)
         timeout = aiohttp.ClientTimeout(connect=5, sock_read=10)
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
@@ -264,7 +276,8 @@ def main() -> None:
                 reporter.cancel()
                 await asyncio.gather(reporter, return_exceptions=True)
                 await publish_final_summary(state)
-                await redis.aclose()
+                if redis:
+                    await redis.aclose()
 
     try:
         asyncio.run(run())

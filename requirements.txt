@@ -1,5 +1,6 @@
 aiohttp
 fastapi
 uvicorn[standard]
+aiofiles
 redis
 kubernetes

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LoadBlast</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .section-title {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+    .section-sub {
+      font-size: 14px;
+      color: var(--ink-2);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="/" class="wordmark">Load<span>Blast</span></a>
+  </div>
+</header>
+
+<main style="padding: 48px 0 80px;">
+  <div class="page-narrow">
+
+    <div class="mb-24">
+      <div class="section-title">New load test</div>
+      <div class="section-sub">Configure a test and run it against any HTTP target.</div>
+    </div>
+
+    <div class="card" style="padding: 24px;">
+      <div class="tabs">
+        <button class="tab active" data-tab="url">URL Test</button>
+        <button class="tab" data-tab="flow">API Flow</button>
+      </div>
+
+      <!-- ── URL mode ────────────────────────────────── -->
+      <div id="panel-url">
+        <div class="field">
+          <label>Target URL</label>
+          <input type="url" id="url-target" placeholder="https://example.com" autocomplete="off">
+        </div>
+        <div class="g3 mb-24">
+          <div>
+            <label>Concurrency</label>
+            <input type="number" id="url-concurrency" value="20" min="1" max="1000">
+          </div>
+          <div>
+            <label>Duration (s)</label>
+            <input type="number" id="url-duration" value="30" min="1" max="3600">
+          </div>
+          <div>
+            <label>Ramp-up (s)</label>
+            <input type="number" id="url-rampup" value="0" min="0" max="3600">
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="runUrl()">Run test</button>
+      </div>
+
+      <!-- ── Flow mode ───────────────────────────────── -->
+      <div id="panel-flow" style="display:none;">
+
+        <div id="steps-container" class="mb-12"></div>
+
+        <button class="btn btn-ghost btn-sm mb-24" onclick="addStep()">+ Add step</button>
+
+        <hr class="mb-24">
+
+        <div class="g3 mb-24">
+          <div>
+            <label>Concurrency</label>
+            <input type="number" id="flow-concurrency" value="10" min="1" max="1000">
+          </div>
+          <div>
+            <label>Duration (s)</label>
+            <input type="number" id="flow-duration" value="30" min="1" max="3600">
+          </div>
+          <div>
+            <label>Ramp-up (s)</label>
+            <input type="number" id="flow-rampup" value="0" min="0" max="3600">
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="runFlow()">Run test</button>
+      </div>
+    </div>
+
+    <div id="err" class="msg-error" style="display:none;"></div>
+
+  </div>
+</main>
+
+<script>
+  // ── Tab switching ────────────────────────────────────────────────────────
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    const mode = t.dataset.tab;
+    document.getElementById('panel-url').style.display  = mode === 'url'  ? '' : 'none';
+    document.getElementById('panel-flow').style.display = mode === 'flow' ? '' : 'none';
+    if (mode === 'flow' && document.querySelectorAll('.step-card').length === 0) addStep();
+  }));
+
+  // ── Step builder ─────────────────────────────────────────────────────────
+  let stepSeq = 0;
+
+  function addStep() {
+    stepSeq++;
+    const id = stepSeq;
+    const card = document.createElement('div');
+    card.className = 'step-card';
+    card.dataset.sid = id;
+    card.innerHTML = `
+      <div class="step-header">
+        <span class="step-num">Step <span class="sn">${document.querySelectorAll('.step-card').length + 1}</span></span>
+        <button class="btn-icon" onclick="removeStep(${id})" title="Remove step">×</button>
+      </div>
+
+      <div class="row mb-12">
+        <select class="js-method" style="width:110px; flex-shrink:0;">
+          <option>GET</option><option>POST</option><option>PUT</option>
+          <option>DELETE</option><option>PATCH</option>
+        </select>
+        <input type="url" class="js-url flex-1" placeholder="https://api.example.com/endpoint" autocomplete="off">
+      </div>
+
+      <div class="mb-12">
+        <label>Headers</label>
+        <div class="js-headers"></div>
+        <button class="btn btn-ghost btn-sm mt-8" onclick="addHeaderRow(this.previousElementSibling)">+ Add header</button>
+      </div>
+
+      <div class="mb-12">
+        <label>Body (JSON)</label>
+        <textarea class="js-body" rows="2" placeholder='{"key": "value"}'></textarea>
+      </div>
+
+      <div>
+        <label>Extract variable</label>
+        <div class="js-extracts"></div>
+        <button class="btn btn-ghost btn-sm mt-8" onclick="addExtractRow(this.previousElementSibling)">+ Add extraction</button>
+      </div>
+    `;
+    document.getElementById('steps-container').appendChild(card);
+    renumber();
+  }
+
+  function removeStep(id) {
+    document.querySelector(`[data-sid="${id}"]`)?.remove();
+    renumber();
+  }
+
+  function renumber() {
+    document.querySelectorAll('.step-card .sn').forEach((el, i) => el.textContent = i + 1);
+  }
+
+  function addHeaderRow(container) {
+    const row = document.createElement('div');
+    row.className = 'header-row';
+    row.innerHTML = `
+      <input class="js-hk" placeholder="Authorization" style="width:160px; flex-shrink:0;">
+      <input class="js-hv flex-1" placeholder="Bearer {{token}}">
+      <button class="btn-icon" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(row);
+  }
+
+  function addExtractRow(container) {
+    const row = document.createElement('div');
+    row.className = 'extract-row';
+    row.innerHTML = `
+      <input class="js-en" placeholder="token" style="width:110px; flex-shrink:0;">
+      <select class="js-ef" style="width:90px; flex-shrink:0;">
+        <option value="json">JSON</option>
+        <option value="header">Header</option>
+      </select>
+      <input class="js-ep flex-1" placeholder="data.access_token">
+      <button class="btn-icon" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(row);
+  }
+
+  function stepData(card) {
+    const method  = card.querySelector('.js-method').value;
+    const url     = card.querySelector('.js-url').value.trim();
+    const bodyTxt = card.querySelector('.js-body').value.trim();
+
+    const step = { method, url };
+
+    // headers
+    const hdrs = {};
+    card.querySelectorAll('.header-row').forEach(r => {
+      const k = r.querySelector('.js-hk').value.trim();
+      const v = r.querySelector('.js-hv').value.trim();
+      if (k) hdrs[k] = v;
+    });
+    if (Object.keys(hdrs).length) step.headers = hdrs;
+
+    // body
+    if (bodyTxt) {
+      try { step.body = JSON.parse(bodyTxt); } catch {}
+    }
+
+    // extract
+    const extracts = [];
+    card.querySelectorAll('.extract-row').forEach(r => {
+      const name = r.querySelector('.js-en').value.trim();
+      const from = r.querySelector('.js-ef').value;
+      const path = r.querySelector('.js-ep').value.trim();
+      if (name && path) extracts.push({ name, from, path });
+    });
+    if (extracts.length) step.extract = extracts;
+
+    return step;
+  }
+
+  // ── Submission ───────────────────────────────────────────────────────────
+  function showErr(msg) {
+    const el = document.getElementById('err');
+    el.textContent = msg;
+    el.style.display = '';
+  }
+  function clearErr() { document.getElementById('err').style.display = 'none'; }
+
+  async function post(config) {
+    clearErr();
+    let res;
+    try {
+      res = await fetch('/tests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+    } catch {
+      showErr('Could not reach the server.');
+      return;
+    }
+    if (!res.ok) {
+      let detail = 'Request failed.';
+      try { detail = (await res.json()).detail; } catch {}
+      showErr(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      return;
+    }
+    const { test_id } = await res.json();
+    window.location.href = `/dashboard?id=${test_id}`;
+  }
+
+  function runUrl() {
+    const url = document.getElementById('url-target').value.trim();
+    if (!url) return showErr('Target URL is required.');
+    post({
+      url,
+      concurrency: +document.getElementById('url-concurrency').value,
+      duration:    +document.getElementById('url-duration').value,
+      ramp_up:     +document.getElementById('url-rampup').value,
+    });
+  }
+
+  function runFlow() {
+    const cards = document.querySelectorAll('.step-card');
+    if (!cards.length) return showErr('Add at least one step.');
+    const steps = Array.from(cards).map(stepData);
+    const missing = steps.findIndex(s => !s.url);
+    if (missing !== -1) return showErr(`Step ${missing + 1} is missing a URL.`);
+    post({
+      flow:        steps,
+      concurrency: +document.getElementById('flow-concurrency').value,
+      duration:    +document.getElementById('flow-duration').value,
+      ramp_up:     +document.getElementById('flow-rampup').value,
+    });
+  }
+</script>
+</body>
+</html>
