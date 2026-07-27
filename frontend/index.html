@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LoadBlast</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=4">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     .section-title {
       font-size: 22px;
@@ -23,18 +24,21 @@
 <header class="header">
   <div class="header-inner">
     <a href="/" class="wordmark">Load<span>Blast</span></a>
+    <nav class="nav">
+      <a href="/about" class="nav-link">About</a>
+    </nav>
   </div>
 </header>
 
-<main style="padding: 48px 0 80px;">
-  <div class="page-narrow">
-
-    <div class="mb-24">
+<main class="test-workspace" id="test-workspace">
+  <section class="workspace-pane config-pane" aria-label="Test configuration">
+    <div class="pane-inner">
+      <div class="mb-24">
       <div class="section-title">New load test</div>
       <div class="section-sub">Configure a test and run it against any HTTP target.</div>
-    </div>
+      </div>
 
-    <div class="card" style="padding: 24px;">
+      <div class="card" style="padding: 24px;">
       <div class="tabs">
         <button class="tab active" data-tab="url">URL Test</button>
         <button class="tab" data-tab="flow">API Flow</button>
@@ -60,7 +64,7 @@
             <input type="number" id="url-rampup" value="0" min="0" max="3600">
           </div>
         </div>
-        <button class="btn btn-primary" style="width:100%;" onclick="runUrl()">Run test</button>
+        <button class="btn btn-primary run-button" style="width:100%;" onclick="runUrl()">Run test</button>
       </div>
 
       <!-- ── Flow mode ───────────────────────────────── -->
@@ -86,13 +90,73 @@
             <input type="number" id="flow-rampup" value="0" min="0" max="3600">
           </div>
         </div>
-        <button class="btn btn-primary" style="width:100%;" onclick="runFlow()">Run test</button>
+        <button class="btn btn-primary run-button" style="width:100%;" onclick="runFlow()">Run test</button>
+      </div>
+      </div>
+
+      <div id="err" class="msg-error" style="display:none;"></div>
+    </div>
+  </section>
+
+  <div class="workspace-divider" id="workspace-divider" role="separator" aria-orientation="vertical"
+       aria-label="Resize configuration and results panels" aria-valuemin="30" aria-valuemax="70"
+       aria-valuenow="50" tabindex="0"><span></span></div>
+
+  <section class="workspace-pane results-pane" aria-label="Test results" aria-live="polite">
+    <div class="pane-inner results-inner">
+      <div class="results-header">
+        <div>
+          <div class="section-title">Test results</div>
+          <div class="section-sub" id="results-subtitle">Live performance metrics will appear here.</div>
+        </div>
+        <span class="pill pill-running" id="status-pill" style="display:none;">
+          <span class="dot dot-pulse"></span>Running
+        </span>
+      </div>
+
+      <div class="results-empty" id="results-empty">
+        <div class="empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3M2 19.5h20"/></svg>
+        </div>
+        <div class="empty-title">No results yet</div>
+        <div class="empty-copy">Configure your test, then select <strong>Run test</strong> to see live results.</div>
+      </div>
+
+      <div id="results-content" style="display:none;">
+        <div class="results-kpis mb-16">
+          <div class="kpi"><div class="kpi-label">RPS</div><div class="kpi-val" id="kpi-rps">—</div></div>
+          <div class="kpi"><div class="kpi-label">p50</div><div class="kpi-val" id="kpi-p50">—<span class="kpi-unit">ms</span></div></div>
+          <div class="kpi"><div class="kpi-label">p95</div><div class="kpi-val" id="kpi-p95">—<span class="kpi-unit">ms</span></div></div>
+          <div class="kpi"><div class="kpi-label">p99</div><div class="kpi-val" id="kpi-p99">—<span class="kpi-unit">ms</span></div></div>
+          <div class="kpi"><div class="kpi-label">Errors</div><div class="kpi-val" id="kpi-err">—</div></div>
+          <div class="kpi"><div class="kpi-label">Active VUs</div><div class="kpi-val" id="kpi-vus">—</div></div>
+        </div>
+        <div class="chart-card mb-16">
+          <div class="chart-title">Requests / second</div>
+          <div class="chart-wrap"><canvas id="chart-rps"></canvas></div>
+        </div>
+        <div class="chart-card mb-16">
+          <div class="chart-title">Latency</div>
+          <div class="chart-wrap"><canvas id="chart-lat"></canvas></div>
+        </div>
+        <div class="chart-card mb-16 compact-card">
+          <div class="chart-title">Status codes</div>
+          <div class="codes" id="codes-list"><span class="waiting-copy">Waiting for data…</span></div>
+        </div>
+        <div id="summary" class="summary-card" style="display:none;">
+          <div class="summary-label">Test complete</div>
+          <div class="summary-grid">
+            <div><div class="s-val" id="sum-total">—</div><div class="s-key">Total requests</div></div>
+            <div><div class="s-val" id="sum-errors">—</div><div class="s-key">Errors</div></div>
+            <div><div class="s-val" id="sum-p50">—</div><div class="s-key">p50 latency</div></div>
+            <div><div class="s-val" id="sum-p95">—</div><div class="s-key">p95 latency</div></div>
+            <div><div class="s-val" id="sum-p99">—</div><div class="s-key">p99 latency</div></div>
+          </div>
+        </div>
+        <div id="ws-error" class="msg-error" style="display:none;"></div>
       </div>
     </div>
-
-    <div id="err" class="msg-error" style="display:none;"></div>
-
-  </div>
+  </section>
 </main>
 
 <script>
@@ -230,6 +294,7 @@
 
   async function post(config) {
     clearErr();
+    setRunningState(true);
     let res;
     try {
       res = await fetch('/tests', {
@@ -239,16 +304,18 @@
       });
     } catch {
       showErr('Could not reach the server.');
+      setRunningState(false);
       return;
     }
     if (!res.ok) {
       let detail = 'Request failed.';
       try { detail = (await res.json()).detail; } catch {}
       showErr(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      setRunningState(false);
       return;
     }
     const { test_id } = await res.json();
-    window.location.href = `/dashboard?id=${test_id}`;
+    startResults(test_id);
   }
 
   function runUrl() {
@@ -274,6 +341,211 @@
       duration:    +document.getElementById('flow-duration').value,
       ramp_up:     +document.getElementById('flow-rampup').value,
     });
+  }
+
+  // ── Resizable workspace ─────────────────────────────────────────────────
+  const workspace = document.getElementById('test-workspace');
+  const divider = document.getElementById('workspace-divider');
+
+  function setSplit(clientX) {
+    const rect = workspace.getBoundingClientRect();
+    const pct = Math.min(70, Math.max(30, ((clientX - rect.left) / rect.width) * 100));
+    workspace.style.setProperty('--config-width', `${pct}%`);
+    divider.setAttribute('aria-valuenow', Math.round(pct));
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  divider.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    divider.setPointerCapture(event.pointerId);
+    workspace.classList.add('is-resizing');
+  });
+  divider.addEventListener('pointermove', event => {
+    if (divider.hasPointerCapture(event.pointerId)) setSplit(event.clientX);
+  });
+  divider.addEventListener('pointerup', event => {
+    divider.releasePointerCapture(event.pointerId);
+    workspace.classList.remove('is-resizing');
+  });
+  divider.addEventListener('pointercancel', () => {
+    workspace.classList.remove('is-resizing');
+  });
+  divider.addEventListener('lostpointercapture', () => {
+    workspace.classList.remove('is-resizing');
+  });
+  divider.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = Number(divider.getAttribute('aria-valuenow'));
+    const next = event.key === 'Home' ? 30 : event.key === 'End' ? 70 :
+      current + (event.key === 'ArrowLeft' ? -2 : 2);
+    workspace.style.setProperty('--config-width', `${Math.min(70, Math.max(30, next))}%`);
+    divider.setAttribute('aria-valuenow', Math.min(70, Math.max(30, next)));
+    window.dispatchEvent(new Event('resize'));
+  });
+
+  // ── In-page live results ────────────────────────────────────────────────
+  let resultsSocket;
+  let rpsChart;
+  let latChart;
+  let allCodes = {};
+  const MAX_POINTS = 120;
+
+  function css(variable) {
+    return getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+  }
+
+  function chartScales() {
+    return {
+      x: {
+        grid: { color: css('--grid'), drawBorder: false },
+        ticks: { color: css('--ink-muted'), maxTicksLimit: 6, font: { size: 10 } },
+        border: { color: css('--axis') },
+      },
+      y: {
+        grid: { color: css('--grid'), drawBorder: false },
+        ticks: { color: css('--ink-muted'), font: { size: 10 } },
+        border: { color: css('--axis') },
+        beginAtZero: true,
+      },
+    };
+  }
+
+  function dataset(label, color) {
+    return {
+      label, data: [], borderColor: color, borderWidth: 2, pointRadius: 0,
+      pointHoverRadius: 3, tension: 0.3, fill: false,
+    };
+  }
+
+  function buildCharts() {
+    if (rpsChart) rpsChart.destroy();
+    if (latChart) latChart.destroy();
+    const common = {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: chartScales(),
+      plugins: { legend: { display: false } },
+    };
+    rpsChart = new Chart(document.getElementById('chart-rps'), {
+      type: 'line',
+      data: { labels: [], datasets: [dataset('RPS', css('--s1'))] },
+      options: common,
+    });
+    latChart = new Chart(document.getElementById('chart-lat'), {
+      type: 'line',
+      data: { labels: [], datasets: [
+        dataset('p50', css('--s1')), dataset('p95', css('--s2')), dataset('p99', css('--s3')),
+      ]},
+      options: {
+        ...common,
+        plugins: { legend: {
+          display: true, position: 'top', align: 'end',
+          labels: { color: css('--ink-muted'), usePointStyle: true, boxHeight: 2, font: { size: 10 } },
+        }},
+      },
+    });
+  }
+
+  function pushPoint(chart, label, values) {
+    chart.data.labels.push(label);
+    values.forEach((value, index) => chart.data.datasets[index].data.push(value));
+    if (chart.data.labels.length > MAX_POINTS) {
+      chart.data.labels.shift();
+      chart.data.datasets.forEach(item => item.data.shift());
+    }
+    chart.update('none');
+  }
+
+  function setKpi(id, value, unit = '') {
+    document.getElementById(id).innerHTML =
+      `${value}${unit ? `<span class="kpi-unit">${unit}</span>` : ''}`;
+  }
+
+  function updateCodes(snapshot) {
+    Object.entries(snapshot).forEach(([code, count]) => {
+      allCodes[code] = (allCodes[code] || 0) + count;
+    });
+    const list = document.getElementById('codes-list');
+    list.innerHTML = '';
+    Object.entries(allCodes).sort().forEach(([code, count]) => {
+      const badge = document.createElement('span');
+      badge.className = `code-badge ${code.startsWith('2') ? 'code-2xx' : 'code-err'}`;
+      badge.textContent = `${code}  ×${count.toLocaleString()}`;
+      list.appendChild(badge);
+    });
+  }
+
+  function setRunningState(running) {
+    document.querySelectorAll('.run-button').forEach(button => {
+      button.disabled = running;
+      button.textContent = running ? 'Running test…' : 'Run test';
+    });
+  }
+
+  function showSummary(data) {
+    document.getElementById('sum-total').textContent = data.total_requests.toLocaleString();
+    document.getElementById('sum-errors').textContent = data.total_errors.toLocaleString();
+    ['p50', 'p95', 'p99'].forEach(key => {
+      document.getElementById(`sum-${key}`).innerHTML =
+        `${data[key]}<span class="kpi-unit"> ms</span>`;
+    });
+    document.getElementById('summary').style.display = '';
+    document.getElementById('results-subtitle').textContent = 'Your test finished successfully.';
+    const pill = document.getElementById('status-pill');
+    pill.className = 'pill pill-done';
+    pill.innerHTML = '<span class="dot"></span>Complete';
+    setRunningState(false);
+  }
+
+  function showSocketError(message) {
+    const error = document.getElementById('ws-error');
+    error.textContent = message;
+    error.style.display = '';
+    const pill = document.getElementById('status-pill');
+    pill.className = 'pill pill-error';
+    pill.innerHTML = '<span class="dot"></span>Error';
+    setRunningState(false);
+  }
+
+  function startResults(testId) {
+    if (resultsSocket) resultsSocket.close();
+    allCodes = {};
+    document.getElementById('results-empty').style.display = 'none';
+    document.getElementById('results-content').style.display = '';
+    document.getElementById('summary').style.display = 'none';
+    document.getElementById('ws-error').style.display = 'none';
+    document.getElementById('codes-list').innerHTML = '<span class="waiting-copy">Waiting for data…</span>';
+    document.getElementById('results-subtitle').textContent = `Test ${testId.slice(0, 8)} · receiving live metrics`;
+    const pill = document.getElementById('status-pill');
+    pill.style.display = '';
+    pill.className = 'pill pill-running';
+    pill.innerHTML = '<span class="dot dot-pulse"></span>Running';
+    ['rps', 'p50', 'p95', 'p99', 'err', 'vus'].forEach(key => setKpi(`kpi-${key}`, '—'));
+    buildCharts();
+
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    resultsSocket = new WebSocket(`${protocol}://${location.host}/tests/${testId}/metrics`);
+    resultsSocket.onmessage = ({ data }) => {
+      let metric;
+      try { metric = JSON.parse(data); } catch { return; }
+      if (metric.summary) return showSummary(metric);
+      const tick = new Date(metric.ts * 1000).toLocaleTimeString([], { hour12: false });
+      setKpi('kpi-rps', metric.rps);
+      setKpi('kpi-p50', metric.p50, 'ms');
+      setKpi('kpi-p95', metric.p95, 'ms');
+      setKpi('kpi-p99', metric.p99, 'ms');
+      setKpi('kpi-err', metric.errors);
+      setKpi('kpi-vus', metric.concurrency);
+      pushPoint(rpsChart, tick, [metric.rps]);
+      pushPoint(latChart, tick, [metric.p50, metric.p95, metric.p99]);
+      if (metric.status_codes) updateCodes(metric.status_codes);
+    };
+    resultsSocket.onerror = () => showSocketError('Could not connect to the live results stream.');
+    resultsSocket.onclose = ({ code }) => {
+      if (code === 4000) showSocketError('The test finished before the results stream connected.');
+      if (code === 4004) showSocketError('The server could not find this test.');
+    };
   }
 </script>
 </body>

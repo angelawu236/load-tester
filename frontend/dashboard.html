@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LoadBlast — Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=4">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -14,11 +14,12 @@
     <a href="/" class="wordmark">Load<span>Blast</span></a>
     <div class="header-sep"></div>
     <div class="header-sub" id="hdr-id">—</div>
-    <div style="margin-left:auto;">
-      <span class="pill pill-running" id="status-pill">
+    <nav class="nav">
+      <span class="pill pill-running" id="status-pill" style="margin-right: 8px;">
         <span class="dot dot-pulse"></span>Running
       </span>
-    </div>
+      <a href="/about" class="nav-link">About</a>
+    </nav>
   </div>
 </header>
 

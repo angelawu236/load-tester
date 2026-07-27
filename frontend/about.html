@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LoadBlast — About</title>
+  <link rel="stylesheet" href="/static/style.css?v=4">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="/" class="wordmark">Load<span>Blast</span></a>
+    <nav class="nav">
+      <a href="/about" class="nav-link">About</a>
+    </nav>
+  </div>
+</header>
+
+<main style="padding: 64px 0 80px;">
+  <div class="page-narrow">
+
+    <h1 style="font-size: 28px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 8px;">
+      About LoadBlast
+    </h1>
+    <p style="color: var(--ink-2); margin-bottom: 48px;">
+      A distributed load-testing platform built from scratch.
+      <span class="about-credit">
+        By angelawu236 on GitHub at
+        <a href="https://github.com/angelawu236/load-tester"
+           target="_blank" rel="noopener noreferrer">angelawu236/load-tester</a>.
+      </span>
+    </p>
+
+    <div class="card" style="padding: 28px; margin-bottom: 16px;">
+      <h2 style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">What it does</h2>
+      <p style="color: var(--ink-2); line-height: 1.7;">
+        LoadBlast fans out HTTP load across a swarm of async virtual users,
+        streams live metrics to a dashboard in real time, and produces a
+        summary when the test completes. It supports two modes: hammering a
+        single URL, or running a multi-step API flow where each step can
+        extract and inject values from the previous response.
+      </p>
+    </div>
+
+    <div class="card" style="padding: 28px; margin-bottom: 16px;">
+      <h2 style="font-size: 15px; font-weight: 600; margin-bottom: 16px;">How it works</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+        <div>
+          <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--ink-muted); margin-bottom: 6px;">Worker</div>
+          <p style="color: var(--ink-2); line-height: 1.7; font-size: 13px;">Async Python coroutines simulate concurrent virtual users using a single event loop. Each second, a metrics snapshot is published — RPS, latency percentiles, error counts, status code breakdown.</p>
+        </div>
+        <div>
+          <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--ink-muted); margin-bottom: 6px;">Control API</div>
+          <p style="color: var(--ink-2); line-height: 1.7; font-size: 13px;">FastAPI backend orchestrates workers via Kubernetes Jobs. Metrics flow through Redis pub/sub and are fanned out to all connected WebSocket clients in real time.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 28px;">
+      <h2 style="font-size: 15px; font-weight: 600; margin-bottom: 16px;">Stack</h2>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+        <div style="padding: 12px; background: var(--page); border-radius: 6px; border: 1px solid var(--grid);">
+          <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 3px;">Workers</div>
+          <div style="font-size: 13px; font-weight: 500;">Python · asyncio · aiohttp</div>
+        </div>
+        <div style="padding: 12px; background: var(--page); border-radius: 6px; border: 1px solid var(--grid);">
+          <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 3px;">API</div>
+          <div style="font-size: 13px; font-weight: 500;">FastAPI · WebSocket</div>
+        </div>
+        <div style="padding: 12px; background: var(--page); border-radius: 6px; border: 1px solid var(--grid);">
+          <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 3px;">Transport</div>
+          <div style="font-size: 13px; font-weight: 500;">Redis pub/sub</div>
+        </div>
+        <div style="padding: 12px; background: var(--page); border-radius: 6px; border: 1px solid var(--grid);">
+          <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 3px;">Orchestration</div>
+          <div style="font-size: 13px; font-weight: 500;">Kubernetes Jobs</div>
+        </div>
+        <div style="padding: 12px; background: var(--page); border-radius: 6px; border: 1px solid var(--grid);">
+          <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 3px;">Containers</div>
+          <div style="font-size: 13px; font-weight: 500;">Docker</div>
+        </div>
+        <div style="padding: 12px; background: var(--page); border-radius: 6px; border: 1px solid var(--grid);">
+          <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 3px;">Frontend</div>
+          <div style="font-size: 13px; font-weight: 500;">Vanilla JS · Chart.js</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+</body>
+</html>

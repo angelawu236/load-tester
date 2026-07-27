@@ -84,6 +84,11 @@ async def dashboard():
     return FileResponse("frontend/dashboard.html")
 
 
+@app.get("/about")
+async def about():
+    return FileResponse("frontend/about.html")
+
+
 def _worker_args(test_id: str, config: TestConfig) -> list[str]:
     if config.flow:
         flow_json = json.dumps({"steps": [s.model_dump() for s in config.flow]})
