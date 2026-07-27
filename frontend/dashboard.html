@@ -101,6 +101,11 @@
       </div>
     </div>
 
+    <div id="insight" class="summary-card mb-16" style="display:none;">
+      <div class="summary-label">Insight</div>
+      <p id="insight-text" style="color:var(--ink-2); line-height:1.6; margin:0;"></p>
+    </div>
+
     <div id="ws-error" class="msg-error" style="display:none;"></div>
 
   </div>
@@ -277,34 +282,35 @@
     pill.innerHTML = '<span class="dot"></span>Complete';
   }
 
-  // ── WebSocket ────────────────────────────────────────────────────────────
-  if (testId) {
+  function showInsight(d) {
+    document.getElementById('insight-text').textContent = d.summary_text;
+    document.getElementById('insight').style.display = '';
+  }
+
+  function applyTick(d) {
+    const tick = new Date(d.ts * 1000).toLocaleTimeString([], { hour12: false });
+    setKpi('kpi-rps', d.rps);
+    setKpi('kpi-p50', d.p50, 'ms');
+    setKpi('kpi-p95', d.p95, 'ms');
+    setKpi('kpi-p99', d.p99, 'ms');
+    setKpi('kpi-err', d.errors);
+    setKpi('kpi-vus', d.concurrency);
+    pushPoint(rpsChart, tick, d.rps);
+    pushPoint(latChart,  tick, d.p50, d.p95, d.p99);
+    if (d.status_codes) updateCodes(d.status_codes);
+  }
+
+  // ── Hydrate from persisted data, then (if still running) connect live ──────
+  async function connectLive() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/tests/${testId}/metrics`);
 
     ws.onmessage = ({ data }) => {
       let d;
       try { d = JSON.parse(data); } catch { return; }
-
-      if (d.summary) {
-        showSummary(d);
-        return;
-      }
-
-      // Tick label: HH:MM:SS
-      const tick = new Date(d.ts * 1000).toLocaleTimeString([], { hour12: false });
-
-      setKpi('kpi-rps', d.rps);
-      setKpi('kpi-p50', d.p50, 'ms');
-      setKpi('kpi-p95', d.p95, 'ms');
-      setKpi('kpi-p99', d.p99, 'ms');
-      setKpi('kpi-err', d.errors);
-      setKpi('kpi-vus', d.concurrency);
-
-      pushPoint(rpsChart, tick, d.rps);
-      pushPoint(latChart,  tick, d.p50, d.p95, d.p99);
-
-      if (d.status_codes) updateCodes(d.status_codes);
+      if (d.summary) return showSummary(d);
+      if (d.insight) return showInsight(d);
+      applyTick(d);
     };
 
     ws.onerror = () => {
@@ -328,6 +334,25 @@
       }
     };
   }
+
+  async function hydrate() {
+    let res;
+    try {
+      res = await fetch(`/tests/${testId}`);
+    } catch {
+      return connectLive();
+    }
+    if (!res.ok) return connectLive();
+
+    const record = await res.json();
+    record.metrics.forEach(applyTick);
+    if (record.summary) showSummary(record.summary);
+    if (record.insight) showInsight(record.insight);
+
+    if (!record.done) connectLive();
+  }
+
+  if (testId) hydrate();
 </script>
 </body>
 </html>

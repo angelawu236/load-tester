@@ -153,6 +153,10 @@
             <div><div class="s-val" id="sum-p99">—</div><div class="s-key">p99 latency</div></div>
           </div>
         </div>
+        <div id="insight" class="summary-card" style="display:none;">
+          <div class="summary-label">Insight</div>
+          <p id="insight-text" style="color:var(--ink-2); line-height:1.6; margin:0;"></p>
+        </div>
         <div id="ws-error" class="msg-error" style="display:none;"></div>
       </div>
     </div>
@@ -498,6 +502,11 @@
     setRunningState(false);
   }
 
+  function showInsight(data) {
+    document.getElementById('insight-text').textContent = data.summary_text;
+    document.getElementById('insight').style.display = '';
+  }
+
   function showSocketError(message) {
     const error = document.getElementById('ws-error');
     error.textContent = message;
@@ -514,6 +523,7 @@
     document.getElementById('results-empty').style.display = 'none';
     document.getElementById('results-content').style.display = '';
     document.getElementById('summary').style.display = 'none';
+    document.getElementById('insight').style.display = 'none';
     document.getElementById('ws-error').style.display = 'none';
     document.getElementById('codes-list').innerHTML = '<span class="waiting-copy">Waiting for data…</span>';
     document.getElementById('results-subtitle').textContent = `Test ${testId.slice(0, 8)} · receiving live metrics`;
@@ -530,6 +540,7 @@
       let metric;
       try { metric = JSON.parse(data); } catch { return; }
       if (metric.summary) return showSummary(metric);
+      if (metric.insight) return showInsight(metric);
       const tick = new Date(metric.ts * 1000).toLocaleTimeString([], { hour12: false });
       setKpi('kpi-rps', metric.rps);
       setKpi('kpi-p50', metric.p50, 'ms');

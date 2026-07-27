@@ -3,15 +3,19 @@ import asyncio
 import json
 import os
 import sys
+import time
 import uuid
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from kubernetes import client as k8s, config as k8s_config
 from pydantic import BaseModel, model_validator
+
+import db
+import insight
 
 # Set DEV_MODE=1 to skip Kubernetes and run the worker as a local subprocess.
 DEV_MODE: bool = bool(os.getenv("DEV_MODE"))
@@ -60,6 +64,7 @@ class TestConfig(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global batch_v1
+    db.init_db()
     if not DEV_MODE:
         k8s_config.load_kube_config()
         batch_v1 = k8s.BatchV1Api()
@@ -139,6 +144,28 @@ def _delete_job(test_id: str) -> None:
         pass  # already deleted or ttl'd
 
 
+async def _handle_line(test_id: str, test: dict, line: str) -> bool:
+    """Persist one metrics line, fan it out to WS queues, and (on the summary
+    line) compute + persist + broadcast the insight. Returns True if this was
+    the summary line (stream is done)."""
+    for q in list(test["queues"]):
+        await q.put(line)
+
+    data = json.loads(line)
+    if data.get("summary"):
+        db.save_summary(test_id, data)
+        result = insight.compute_insight(test["ticks"], data)
+        db.save_insight(test_id, result)
+        insight_line = json.dumps({"insight": True, **result})
+        for q in list(test["queues"]):
+            await q.put(insight_line)
+        return True
+
+    test["ticks"].append(data)
+    db.save_metric(test_id, data)
+    return False
+
+
 async def _pipe_from_redis(test_id: str) -> None:
     """Subscribe to worker metrics on Redis and fan out to all WebSocket queues."""
     r = aioredis.Redis(host=REDIS_HOST_LOCAL, port=6379, decode_responses=True)
@@ -149,10 +176,7 @@ async def _pipe_from_redis(test_id: str) -> None:
     async for message in pubsub.listen():
         if message["type"] != "message":
             continue
-        line = message["data"]
-        for q in list(test["queues"]):
-            await q.put(line)
-        if json.loads(line).get("summary"):
+        if await _handle_line(test_id, test, message["data"]):
             break
 
     await pubsub.unsubscribe(f"metrics:{test_id}")
@@ -176,9 +200,7 @@ async def _run_local_worker(test_id: str, config: TestConfig) -> None:
         line = raw.decode().strip()
         if not line:
             continue
-        for q in list(test["queues"]):
-            await q.put(line)
-        if json.loads(line).get("summary"):
+        if await _handle_line(test_id, test, line):
             break
     await proc.wait()
     test["done"] = True
@@ -189,13 +211,22 @@ async def _run_local_worker(test_id: str, config: TestConfig) -> None:
 @app.post("/tests")
 async def start_test(config: TestConfig):
     test_id = str(uuid.uuid4())
-    tests[test_id] = {"queues": [], "done": False}
+    tests[test_id] = {"queues": [], "done": False, "ticks": []}
+    db.save_test(test_id, config.model_dump(), int(time.time()))
     if DEV_MODE:
         asyncio.create_task(_run_local_worker(test_id, config))
     else:
         _create_job(test_id, config)
         asyncio.create_task(_pipe_from_redis(test_id))
     return {"test_id": test_id}
+
+
+@app.get("/tests/{test_id}")
+async def get_test(test_id: str):
+    record = db.get_test(test_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="unknown test_id")
+    return record
 
 
 @app.websocket("/tests/{test_id}/metrics")
